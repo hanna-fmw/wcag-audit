@@ -7,6 +7,9 @@ import { fileURLToPath } from 'url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 async function runLighthouseAudit(url) {
+	// Extract domain name from URL for filename
+	const domain = new URL(url).hostname.replace('www.', '').replace(/\./g, '-')
+
 	const browser = await puppeteer.launch({
 		headless: 'new',
 		args: ['--no-sandbox', '--disable-setuid-sandbox'],
@@ -16,38 +19,56 @@ async function runLighthouseAudit(url) {
 	const endpoint = browser.wsEndpoint()
 
 	try {
-		// Run Lighthouse
+		// Customize which audits to run
+		const config = {
+			extends: 'lighthouse:default',
+			settings: {
+				onlyCategories: ['accessibility'], // Only run accessibility audits
+				// You can also use: 'performance', 'best-practices', 'seo', 'pwa'
+			},
+		}
+
 		const runnerResult = await lighthouse(url, {
 			port: new URL(endpoint).port,
-			output: 'html',
+			output: 'html', // Keep this as just 'html'
 			logLevel: 'info',
-			onlyCategories: ['accessibility', 'best-practices', 'performance', 'seo'],
+			config,
 		})
 
-		// Create reports directory if it doesn't exist
+		// Create reports directory
 		const reportsDir = path.join(__dirname, 'reports')
 		if (!fs.existsSync(reportsDir)) {
 			fs.mkdirSync(reportsDir)
 		}
 
-		// Generate timestamp for unique filenames
-		const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+		// Create date string in YYYY-MM-DD format
+		const date = new Date().toISOString().split('T')[0]
+
+		// Create filenames with domain name and date
+		const htmlFilename = `${domain}-report-${date}.html`
+		const jsonFilename = `${domain}-data-${date}.json`
 
 		// Save HTML report
-		fs.writeFileSync(
-			path.join(reportsDir, `lighthouse-report-${timestamp}.html`),
-			runnerResult.report
+		fs.writeFileSync(path.join(reportsDir, htmlFilename), runnerResult.report)
+
+		// Save JSON data
+		fs.writeFileSync(path.join(reportsDir, jsonFilename), JSON.stringify(runnerResult.lhr, null, 2))
+
+		// Get all accessibility audits
+		const accessibilityAudits = runnerResult.lhr.categories.accessibility.auditRefs.map(
+			(ref) => runnerResult.lhr.audits[ref.id]
 		)
 
-		// Log scores
-		console.log('Lighthouse audit completed successfully!')
-		console.log('Performance score:', runnerResult.lhr.categories.performance.score * 100)
-		console.log('Accessibility score:', runnerResult.lhr.categories.accessibility.score * 100)
-		console.log('Best practices score:', runnerResult.lhr.categories['best-practices'].score * 100)
-		console.log('SEO score:', runnerResult.lhr.categories.seo.score * 100)
+		// Console output
+		console.log('\n=== Accessibility Audit Complete ===')
+		console.log(`URL: ${url}`)
 		console.log(
-			`\nReport saved to: ${path.join(reportsDir, `lighthouse-report-${timestamp}.html`)}`
+			`Overall Score: ${(runnerResult.lhr.categories.accessibility.score * 100).toFixed(1)}%`
 		)
+		console.log(`\nTotal audits: ${accessibilityAudits.length}`)
+		console.log(`\nReports saved:`)
+		console.log(`1. Full report: ${path.join(reportsDir, htmlFilename)}`)
+		console.log(`2. Raw data: ${path.join(reportsDir, jsonFilename)}`)
 	} catch (error) {
 		console.error('Error running Lighthouse audit:', error)
 	} finally {
@@ -56,5 +77,5 @@ async function runLighthouseAudit(url) {
 }
 
 // Replace with your target URL
-const targetUrl = 'https://www.stormfors.com/'
+const targetUrl = 'https://claude.ai/new'
 runLighthouseAudit(targetUrl)
